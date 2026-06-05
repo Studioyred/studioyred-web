@@ -1,0 +1,381 @@
+
+<a href="/playground" style="position:fixed;top:12px;left:14px;z-index:9999;display:flex;align-items:center;gap:6px;padding:6px 14px;background:rgba(0,0,0,0.6);color:#e8c9a0;font-size:13px;font-weight:600;text-decoration:none;border-radius:99px;border:1px solid rgba(232,201,160,0.35);backdrop-filter:blur(6px);transition:background .2s;" onmouseover="this.style.background='rgba(0,0,0,0.85)'" onmouseout="this.style.background='rgba(0,0,0,0.6)'">← 놀이터</a>
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+#gw{background:#0a0a1e;border-radius:12px;overflow:hidden;width:100%;max-width:400px;margin:0 auto;display:flex;flex-direction:column;font-family:monospace}
+#topbar{display:flex;align-items:center;gap:8px;padding:7px 12px;background:#06061a;border-bottom:1px solid #1a1a3a}
+.tlbl{font-size:11px;color:#888}
+#sv{color:#FFD700;font-weight:bold;font-size:12px}
+#tv{font-size:14px;font-weight:bold;color:#fff;min-width:32px}
+#tv.red{color:#e74c3c;animation:bk .5s step-end infinite}
+@keyframes bk{50%{opacity:0}}
+#hw{flex:1;height:13px;background:#1a1a3a;border-radius:3px;overflow:hidden;position:relative}
+#hb{height:100%;background:#4cdb7a;border-radius:3px}
+#hl{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:10px;color:#fff}
+#wv{color:#7af;font-size:11px}
+canvas{display:block;image-rendering:pixelated;width:100%;cursor:none}
+#bot{background:#06061a;border-top:1px solid #1a1a3a;padding:7px 12px;display:flex;align-items:center;justify-content:space-between}
+#hint{font-size:10px;color:#444}
+#brow{display:flex;gap:6px}
+.btn{font-size:11px;padding:5px 13px;background:#1a1a3a;color:#ccc;border:1px solid #3a3a6a;border-radius:6px;cursor:pointer}
+.btn:hover{background:#2a2a5a;color:#fff}
+.btn.p{background:#2244aa;color:#fff;border-color:#4466cc}
+.btn.p:hover{background:#3355cc}
+</style>
+
+<h2 class="sr-only">연날리기 게임 — 1분 제한, 별 먹으면 시간+1초, 연이 커집니다</h2>
+<div id="gw">
+  <div id="topbar">
+    <span class="tlbl">SCORE</span><span id="sv">0</span>
+    <span style="color:#FFD700;font-size:13px;font-weight:bold">⏱<span id="tv">60</span>s</span>
+    <div id="hw"><div id="hb" style="width:100%"></div><span id="hl">100</span></div>
+    <span id="wv">WAVE 1</span>
+  </div>
+  <canvas id="gc" width="400" height="540"></canvas>
+  <div id="bot">
+    <span id="hint">↑↓←→ | ★+1초 &amp; 연 커짐!</span>
+    <div id="brow">
+      <button class="btn" id="snd">♪ ON</button>
+      <button class="btn p" id="sbtn">▶ START</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+const cv=document.getElementById('gc');
+const cx=cv.getContext('2d');
+cx.imageSmoothingEnabled=false;
+const W=400,H=540,GH=430,CY=515,KAY=CY-20;
+
+let AC=null,sndOn=true,wind=null;
+function getAC(){if(!AC)AC=new(window.AudioContext||window.webkitAudioContext)();return AC;}
+function startWind(){
+  if(!sndOn||wind)return;
+  try{
+    var ac=getAC(),buf=ac.createBuffer(1,ac.sampleRate*2,ac.sampleRate),d=buf.getChannelData(0);
+    for(var i=0;i<d.length;i++)d[i]=(Math.random()*2-1);
+    wind=ac.createBufferSource();wind.buffer=buf;wind.loop=true;
+    var lp=ac.createBiquadFilter();lp.type='lowpass';lp.frequency.value=360;
+    var wg=ac.createGain();wg.gain.value=0.03;
+    wind.connect(lp);lp.connect(wg);wg.connect(ac.destination);wind.start();
+  }catch(e){}
+}
+function stopWind(){if(wind){try{wind.stop();}catch(e){}wind=null;}}
+function beep(f,d,v,t){
+  if(!sndOn)return;
+  try{
+    var ac=getAC(),o=ac.createOscillator(),g=ac.createGain();
+    o.type=t||'square';o.frequency.value=f;
+    g.gain.setValueAtTime(v||0.12,ac.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,ac.currentTime+d);
+    o.connect(g);g.connect(ac.destination);o.start();o.stop(ac.currentTime+d);
+  }catch(e){}
+}
+function sfxHit(){beep(120,0.17,0.16,'sawtooth');}
+function sfxStar(){beep(880,0.06,0.1,'square');setTimeout(()=>beep(1320,0.1,0.09,'square'),110);}
+function sfxTimer(){beep(660,0.07,0.11,'triangle');setTimeout(()=>beep(990,0.09,0.1,'triangle'),80);}
+function sfxDead(){beep(200,0.2,0.16,'sawtooth');setTimeout(()=>beep(120,0.3,0.14,'sawtooth'),220);}
+function sfxStart(){beep(440,0.07,0.1,'square');setTimeout(()=>beep(660,0.12,0.1,'square'),100);}
+
+var G={
+  run:false,over:false,
+  kite:{x:200,y:90,vx:0,vy:0,sz:1},
+  hp:100,score:0,fr:0,wave:1,
+  timer:60,lastSec:0,
+  clouds:[],stars:[],birds:[],
+  spT:0,spd:0.9,
+  keys:{},inv:0,parts:[],
+  bgSt:[],scrY:0,lean:0
+};
+for(var i=0;i<50;i++) G.bgSt.push({x:Math.random()*W,y:Math.random()*GH,s:Math.random()<0.3?2:1});
+
+function resetG(){
+  G.run=false;G.over=false;
+  G.kite={x:200,y:90,vx:0,vy:0,sz:1};
+  G.hp=100;G.score=0;G.fr=0;G.wave=1;
+  G.timer=60;G.lastSec=0;
+  G.clouds=[];G.stars=[];G.birds=[];
+  G.spT=0;G.spd=0.9;G.inv=0;G.parts=[];G.scrY=0;G.lean=0;
+  hud();
+}
+
+function hud(){
+  document.getElementById('sv').textContent=G.score;
+  var p=Math.max(0,G.hp);
+  document.getElementById('hb').style.width=p+'%';
+  document.getElementById('hb').style.background=p>60?'#4cdb7a':p>30?'#f0a500':'#e74c3c';
+  document.getElementById('hl').textContent=Math.round(p);
+  var tv=document.getElementById('tv');
+  tv.textContent=Math.ceil(G.timer);
+  tv.className=G.timer<=10?'red':'';
+  document.getElementById('wv').textContent='WAVE '+G.wave;
+}
+
+function spawnCloud(){
+  var w=30+Math.floor(Math.random()*36),h=16+Math.floor(Math.random()*16);
+  G.clouds.push({x:14+Math.random()*(W-28),y:-h-4,w:w,h:h,dark:Math.random()<0.45,spd:G.spd*(0.5+Math.random()*0.5)});
+}
+function spawnStar(){G.stars.push({x:18+Math.random()*(W-36),y:-10,spd:G.spd*0.6,a:0,col:false});}
+function spawnBird(){
+  var l=Math.random()<0.5;
+  G.birds.push({x:l?-20:W+20,y:24+Math.random()*(GH-60),vx:l?G.spd*1.2:-(G.spd*1.2),w:0});
+}
+function spawnParts(x,y,col,n,sz){
+  for(var i=0;i<n;i++){
+    var a=Math.random()*Math.PI*2,sp=Math.random()*2.5+0.4;
+    G.parts.push({x:x,y:y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-1,life:20,max:20,col:col,sz:sz||2});
+  }
+}
+
+function drawSky(){
+  cx.fillStyle='#0d1a40';cx.fillRect(0,0,W,GH);
+  for(var s of G.bgSt){cx.fillStyle=s.s===2?'#fff':'#889';cx.fillRect(Math.floor(s.x),Math.floor(s.y),s.s,s.s);}
+  G.scrY=(G.scrY+G.spd*0.3)%GH;
+  cx.fillStyle='rgba(255,255,255,0.02)';
+  for(var i=0;i<3;i++){var wy=(G.scrY+i*(GH/3))%GH;cx.fillRect(0,Math.floor(wy),W,2);}
+  cx.fillStyle='#06061a';cx.fillRect(0,GH,W,H-GH);
+  cx.fillStyle='#0e1428';
+  for(var i=0;i<5;i++){var bx=(i*90+G.fr*0.35)%(W+50)-25;cx.fillRect(Math.floor(bx),GH+2,20,5);cx.fillRect(Math.floor(bx)+4,GH-1,12,4);}
+  cx.fillStyle='#0a1020';cx.fillRect(0,GH+18,W,H-GH-18);
+}
+
+function drawCloud(c){
+  var col=c.dark?'#3d4460':'#b8cee0';
+  var bx=Math.round(c.x-c.w/2),by=Math.round(c.y),w=c.w,h=c.h;
+  cx.fillStyle=col;
+  cx.fillRect(bx+4,by+Math.floor(h*.45),w-8,Math.floor(h*.55));
+  cx.fillRect(bx+8,by+Math.floor(h*.25),w-16,Math.floor(h*.35));
+  cx.fillRect(bx+12,by,w-24,Math.floor(h*.3));
+  if(c.dark){cx.fillStyle='#ffdd44';for(var i=0;i<3;i++)cx.fillRect(bx+6+i*8,by+h-4,2,4);}
+}
+
+function drawStar(s){
+  var x=Math.round(s.x),y=Math.round(s.y);
+  cx.fillStyle='#FFD700';
+  cx.fillRect(x-1,y-4,2,8);cx.fillRect(x-4,y-1,8,2);
+  cx.fillRect(x-2,y-2,2,2);cx.fillRect(x+1,y-2,2,2);
+  cx.fillRect(x-2,y+1,2,2);cx.fillRect(x+1,y+1,2,2);
+  cx.fillStyle='#fffaaa';cx.fillRect(x,y,1,1);
+}
+
+function drawBird(b){
+  var x=Math.round(b.x),y=Math.round(b.y),up=Math.sin(b.w)>0;
+  cx.fillStyle='#223';cx.fillRect(x-4,y,8,3);
+  cx.fillStyle='#445';
+  if(up){cx.fillRect(x-8,y-3,4,2);cx.fillRect(x+4,y-3,4,2);}
+  else{cx.fillRect(x-8,y+1,4,2);cx.fillRect(x+4,y+1,4,2);}
+  cx.fillStyle='#f90';cx.fillRect(x+3,y,3,2);
+}
+
+function drawKite(x,y,sz){
+  if(G.inv>0&&G.inv%4<2)return;
+  var s=sz||1;
+  x=Math.round(x);y=Math.round(y);
+  var W2=Math.round(3*s),H2=Math.round(4*s),T=Math.round(8*s);
+  cx.fillStyle='#e03030';
+  cx.fillRect(x-1,y-T,2,Math.round(5*s));
+  cx.fillRect(x-W2,y-H2,W2*2,Math.round(5*s));
+  cx.fillStyle='#c02020';cx.fillRect(x-W2,y-H2,1,Math.round(5*s));cx.fillRect(x+W2-1,y-H2,1,Math.round(5*s));
+  cx.fillStyle='#ff6060';cx.fillRect(x-W2+1,y-H2+1,W2*2-2,1);
+  cx.fillStyle='#e03030';cx.fillRect(x-W2,y+1,W2*2,Math.round(4*s));
+  cx.fillStyle='#ff9900';cx.fillRect(x-W2-2,y+1,2,Math.round(2*s));cx.fillRect(x+W2,y+1,2,Math.round(2*s));
+  cx.fillStyle='#fff';cx.fillRect(x-1,y-H2+1,1,1);cx.fillRect(x,y-H2+3,1,1);
+}
+
+function drawChar(){
+  var x=Math.round(W/2),y=CY;
+  var lean=Math.sin(G.lean)*4;
+  cx.save();cx.translate(x,y);cx.rotate(lean*0.01);
+  cx.fillStyle='#f4c07a';cx.fillRect(-4,-26,8,8);
+  cx.fillStyle='#8b4513';cx.fillRect(-5,-30,10,6);cx.fillRect(5,-30,4,3);
+  cx.fillStyle='#fffde0';cx.fillRect(-3,-26,6,3);
+  cx.fillStyle='#2244bb';cx.fillRect(-5,-18,10,10);
+  cx.fillStyle='#f4c07a';
+  var arm=Math.floor(G.fr/18)%2===0;
+  if(arm){cx.fillRect(-8,-22,3,4);cx.fillRect(5,-24,3,4);}
+  else{cx.fillRect(-8,-20,3,4);cx.fillRect(5,-20,3,4);}
+  cx.fillStyle='#1a3399';cx.fillRect(-5,-8,4,9);cx.fillRect(1,-8,4,9);
+  cx.fillStyle='#333';cx.fillRect(-5,1,4,3);cx.fillRect(1,1,4,3);
+  cx.fillStyle='#fff';cx.fillRect(-2,-24,2,2);cx.fillRect(1,-24,2,2);
+  cx.fillStyle='#222';cx.fillRect(-1,-23,1,1);cx.fillRect(2,-23,1,1);
+  cx.fillStyle='#e03030';cx.fillRect(-1,-27,1,2);
+  cx.restore();
+}
+
+function drawString(){
+  var kx=G.kite.x,ky=G.kite.y,cx2=W/2;
+  cx.strokeStyle='#b8860b';cx.lineWidth=1.5;cx.setLineDash([3,3]);
+  cx.beginPath();
+  for(var i=0;i<=8;i++){
+    var t=i/8;
+    var px=kx+(cx2-kx)*t;
+    var py=ky+(KAY-ky)*t+Math.sin(t*Math.PI)*25+Math.sin(G.fr*.06+t*4)*4;
+    if(i===0)cx.moveTo(Math.round(px),Math.round(py));
+    else cx.lineTo(Math.round(px),Math.round(py));
+  }
+  cx.stroke();cx.setLineDash([]);
+}
+
+function drawParts(){
+  for(var p of G.parts){
+    cx.globalAlpha=p.life/p.max;
+    cx.fillStyle=p.col;
+    cx.fillRect(Math.round(p.x),Math.round(p.y),p.sz,p.sz);
+  }
+  cx.globalAlpha=1;
+}
+
+function drawOverlay(msg,subs,col){
+  cx.fillStyle='rgba(4,6,22,0.8)';cx.fillRect(55,170,W-110,150);
+  cx.strokeStyle='#3a4a8a';cx.lineWidth=1;cx.strokeRect(55,170,W-110,150);
+  cx.fillStyle=col||'#FFD700';cx.font='bold 22px monospace';cx.textAlign='center';
+  cx.fillText(msg,W/2,212);
+  cx.fillStyle='#aac8ff';cx.font='12px monospace';
+  if(Array.isArray(subs))subs.forEach((t,i)=>cx.fillText(t,W/2,238+i*20));
+  else cx.fillText(subs,W/2,238);
+  cx.textAlign='left';
+}
+
+function drawTitle(){
+  cx.clearRect(0,0,W,H);
+  drawSky();drawString();drawKite(200,90,1);drawChar();
+  drawOverlay('연 날리기',['방향키로 연을 조종하세요','별=HP+6 &시간+1초 &연 성장!'],'#FFD700');
+  cx.fillStyle='#445';cx.font='11px monospace';cx.textAlign='center';
+  cx.fillText('1분 제한 — 별을 먹어 시간을 늘리세요',W/2,334);
+  cx.textAlign='left';
+}
+
+function drawGameOver(){
+  drawOverlay('GAME OVER',['점수: '+G.score,'▶ RETRY로 재도전'],'#e03030');
+}
+function drawTimeUp(){
+  drawOverlay('TIME UP!',['최종 점수: '+G.score,'▶ RETRY로 재도전'],'#FFD700');
+}
+
+var raf=null;
+
+function tick(){
+  if(!G.run)return;
+  G.fr++;
+  var k=G.kite;
+
+  G.lean+=k.vx*0.04;G.lean*=0.9;
+
+  var acc=0.2,drag=0.88,maxV=2.8;
+  if(G.keys['ArrowLeft']||G.keys['a'])k.vx-=acc;
+  if(G.keys['ArrowRight']||G.keys['d'])k.vx+=acc;
+  if(G.keys['ArrowUp']||G.keys['w'])k.vy-=acc*0.85;
+  if(G.keys['ArrowDown']||G.keys['s'])k.vy+=acc*0.85;
+  k.vx*=drag;k.vy*=drag;
+  k.vx=Math.max(-maxV,Math.min(maxV,k.vx));
+  k.vy=Math.max(-maxV,Math.min(maxV,k.vy));
+  k.x+=k.vx;k.y+=k.vy;
+  k.x=Math.max(8,Math.min(W-8,k.x));
+  k.y=Math.max(8,Math.min(GH-22,k.y));
+  if(G.inv>0)G.inv--;
+
+  G.timer-=1/60;
+  if(G.timer<=0){G.timer=0;endGame(true);return;}
+
+  G.spT++;
+  var rate=Math.max(46,98-G.wave*6);
+  if(G.spT>=rate){G.spT=0;var r=Math.random();if(r<.47)spawnCloud();else if(r<.73)spawnStar();else spawnBird();}
+  G.spd=0.9+G.wave*0.16;
+  if(G.fr%700===0){G.wave++;hud();}
+  G.score=Math.floor(G.fr/8)+G.wave*10;
+
+  var ksz=k.sz;
+  var kHW=Math.round(3*ksz),kHH=Math.round(4*ksz);
+
+  for(var c of G.clouds){
+    c.y+=c.spd;
+    if(c.dark&&G.inv===0){
+      var dx=k.x-c.x,dy=k.y-(c.y+c.h/2);
+      if(Math.abs(dx)<c.w/2+kHW-2&&Math.abs(dy)<c.h/2+kHH-2){
+        G.hp-=1.0;G.inv=24;spawnParts(k.x,k.y,'#e03030',5);sfxHit();
+        if(G.hp<=0){endGame(false);return;}hud();
+      }
+    }
+  }
+  for(var s of G.stars){
+    s.y+=s.spd;s.a+=0.07;
+    if(!s.col){
+      var dx=k.x-s.x,dy=k.y-s.y;
+      if(Math.abs(dx)<11+kHW&&Math.abs(dy)<11+kHH){
+        s.col=true;G.score+=50;G.hp=Math.min(100,G.hp+6);
+        G.timer=Math.min(G.timer+1,999);
+        k.sz=Math.min(k.sz+0.15,3.5);
+        spawnParts(s.x,s.y,'#FFD700',12,3);
+        sfxStar();sfxTimer();hud();
+      }
+    }
+  }
+  for(var b of G.birds){
+    b.x+=b.vx;b.y+=Math.sin(b.w*2)*0.5;b.w+=0.1;
+    if(G.inv===0){
+      var dx=k.x-b.x,dy=k.y-b.y;
+      if(Math.abs(dx)<10+kHW&&Math.abs(dy)<10+kHH){
+        G.hp-=18;G.inv=65;b.x=-200;
+        spawnParts(k.x,k.y,'#ff6600',12,3);sfxHit();
+        if(G.hp<=0){endGame(false);return;}hud();
+      }
+    }
+  }
+
+  for(var p of G.parts){p.x+=p.vx;p.y+=p.vy;p.vy+=0.1;p.life--;}
+  G.parts=G.parts.filter(p=>p.life>0);
+  G.clouds=G.clouds.filter(c=>c.y<GH+28);
+  G.stars=G.stars.filter(s=>s.y<GH+18&&!s.col);
+  G.birds=G.birds.filter(b=>b.x>-36&&b.x<W+36);
+
+  render();hud();
+  raf=requestAnimationFrame(tick);
+}
+
+function render(){
+  cx.clearRect(0,0,W,H);
+  drawSky();
+  G.clouds.forEach(c=>drawCloud(c));
+  G.stars.forEach(s=>drawStar(s));
+  G.birds.forEach(b=>drawBird(b));
+  drawParts();
+  if(G.hp<30){cx.fillStyle='rgba(200,20,20,'+(0.07+0.05*Math.sin(G.fr*0.25))+')';cx.fillRect(0,0,W,GH);}
+  drawString();drawKite(G.kite.x,G.kite.y,G.kite.sz);drawChar();
+  if(G.over){G.timer<=0?drawTimeUp():drawGameOver();}
+}
+
+function endGame(timeup){
+  G.run=false;G.over=true;
+  if(raf)cancelAnimationFrame(raf);
+  stopWind();sfxDead();render();
+  document.getElementById('sbtn').textContent='↺ RETRY';
+}
+
+function startGame(){
+  try{getAC();}catch(e){}
+  resetG();G.run=true;
+  document.getElementById('sbtn').textContent='■ RESET';
+  if(raf)cancelAnimationFrame(raf);
+  stopWind();startWind();sfxStart();
+  tick();
+}
+
+document.addEventListener('keydown',function(e){
+  G.keys[e.key]=true;
+  if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key))e.preventDefault();
+});
+document.addEventListener('keyup',function(e){G.keys[e.key]=false;});
+
+document.getElementById('sbtn').addEventListener('click',startGame);
+document.getElementById('snd').addEventListener('click',function(){
+  sndOn=!sndOn;
+  this.textContent=sndOn?'♪ ON':'♪ OFF';
+  if(!sndOn)stopWind();
+  else if(G.run)startWind();
+});
+
+drawTitle();
+})();
+</script>

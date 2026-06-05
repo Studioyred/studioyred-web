@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ambient Cinematic Viewer</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div id="viewer">
+
+  <!-- ── 0. Background ──────────────────────────────────────── -->
+  <div id="bg-layer"></div>
+
+  <!-- ── 1. Ambient (particles, CRT, curtains) ─────────────── -->
+  <div id="ambient-layer">
+    <canvas id="particle-canvas"></canvas>
+    <div id="crt-overlay"></div>
+    <div id="curtain-left"  class="curtain"></div>
+    <div id="curtain-right" class="curtain"></div>
+  </div>
+
+  <!-- ── 2. Vignette ───────────────────────────────────────── -->
+  <div id="vignette"></div>
+
+  <!-- ── 3. Film Grain ─────────────────────────────────────── -->
+  <div id="film-grain"></div>
+
+  <!-- ── 4. Text Layer ─────────────────────────────────────── -->
+  <div id="text-layer">
+    <div id="scene-label"></div>
+    <div id="subtitle-box">
+      <div id="subtitle-text"></div>
+    </div>
+  </div>
+
+  <!-- ── 5. UI Layer ───────────────────────────────────────── -->
+  <div id="ui-layer">
+    <button id="btn-prev" class="nav-btn" title="이전 (←)" disabled>&#8592;</button>
+
+    <div id="scene-info">
+      <div id="scene-dots"></div>
+      <div id="scene-counter">01 / 01</div>
+    </div>
+
+    <button id="btn-next" class="nav-btn" title="다음 (→)">&#8594;</button>
+  </div>
+
+  <!-- ── 6. Progress Bar ───────────────────────────────────── -->
+  <div id="progress-bar">
+    <div id="progress-fill"></div>
+  </div>
+
+  <!-- ── 7. Fade Overlay (transitions) ─────────────────────── -->
+  <div id="fade-overlay"></div>
+
+</div>
+
+<script src="scenes.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

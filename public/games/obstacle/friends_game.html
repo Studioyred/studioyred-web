@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Friends — 우주기지 달리기</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#0a0a1a; font-family:'Courier New',monospace; color:#fff;
+       display:flex; flex-direction:column; align-items:center;
+       min-height:100vh; justify-content:center; }
+
+/* ── Select ── */
+#select-screen { text-align:center; padding:30px; }
+#select-screen h1 { font-size:34px; color:#ffd700; letter-spacing:4px; margin-bottom:6px; }
+#select-screen p  { color:#555; font-size:14px; margin-bottom:28px; }
+.char-grid { display:flex; flex-wrap:wrap; justify-content:center; gap:14px; margin-bottom:28px; }
+.char-btn {
+  background:#111; border:2px solid #2a2a2a; border-radius:12px;
+  padding:14px 16px; cursor:pointer; color:#fff; transition:all .18s;
+  min-width:110px; text-align:center;
+}
+.char-btn:hover, .char-btn.selected { border-color:#ffd700; background:#1a1800; }
+.char-name  { font-size:14px; font-weight:bold; margin-top:8px; }
+.char-skill { font-size:10px; color:#666; margin-top:3px; }
+#start-btn {
+  background:#ffd700; color:#000; border:none; border-radius:10px;
+  padding:15px 52px; font-size:19px; font-weight:bold; cursor:pointer;
+  font-family:'Courier New',monospace; letter-spacing:2px;
+}
+#start-btn:hover { background:#ffe84d; }
+
+/* ── Game ── */
+#game-screen { display:none; text-align:center; padding:10px; }
+#hud { display:flex; justify-content:space-between; width:900px;
+       color:#ffd700; font-size:15px; margin-bottom:8px; padding:0 6px; }
+#canvas { display:block; border:1px solid #222; border-radius:6px; }
+#controls-hint { color:#333; font-size:12px; margin-top:8px; }
+
+/* ── Result ── */
+#result-screen { display:none; text-align:center; padding:30px; }
+.result-box { background:#111; border:2px solid #333; border-radius:20px;
+              padding:38px 56px; max-width:500px; margin:0 auto; }
+.result-title { font-size:26px; color:#ffd700; margin-bottom:8px; }
+.result-score { font-size:58px; font-weight:bold; margin:12px 0; }
+.couple-area  { font-size:60px; margin:18px 0; }
+.result-msg   { font-size:15px; color:#aaa; line-height:1.9; margin-bottom:22px; white-space:pre-line; }
+.btn-row { display:flex; gap:12px; justify-content:center; }
+.btn-row button { background:#1a1a1a; border:1px solid #444; color:#ccc;
+                  border-radius:10px; padding:11px 26px; cursor:pointer;
+                  font-family:'Courier New',monospace; font-size:13px; }
+.btn-row button:hover { border-color:#ffd700; color:#ffd700; }
+</style>
+</head>
+<body>
+
+<div id="select-screen">
+  <h1>★ FRIENDS RUN ★</h1>
+  <p>우주기지 장애물 달리기 — 캐릭터를 선택하세요</p>
+  <div class="char-grid" id="char-grid"></div>
+  <button id="start-btn" onclick="startGame()">▶ 게임 시작!</button>
+</div>
+
+<div id="game-screen">
+  <div id="hud">
+    <span id="hud-char">도깨비</span>
+    <span id="hud-score">점수: 0</span>
+    <span id="hud-skill">특기: 준비 ✓</span>
+  </div>
+  <canvas id="canvas" width="900" height="300"></canvas>
+  <div id="controls-hint">[ SPACE ] 점프 &nbsp;|&nbsp; [ SPACE 꾹 0.5초 ] 특기 발동 &nbsp;|&nbsp; 모바일: 탭</div>
+</div>
+
+<div id="result-screen">
+  <div class="result-box">
+    <div class="result-title" id="r-title">결과!</div>
+    <div class="result-score" id="r-score">0점</div>
+    <div class="couple-area"  id="r-couple"></div>
+    <div class="result-msg"   id="r-msg"></div>
+    <div class="btn-row">
+      <button onclick="showSelect()">캐릭터 변경</button>
+      <button onclick="startGame()">다시 도전!</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════════════════
+// Sprite sheet  /chibi_tennis.png
+// top row (4): 0=도깨비  1=메신저  2=제너럴의아내→선주  3=훌드라
+// bot row (3): 4=제너럴→동기  5=저승사자  6=에이전트M
+// ══════════════════════════════════════════════════════════════════════════════
+const SDEFS = [
+  {row:0,col:0,tc:4},{row:0,col:1,tc:4},{row:0,col:2,tc:4},{row:0,col:3,tc:4},
+  {row:1,col:0,tc:3},{row:1,col:1,tc:3},{row:1,col:2,tc:3},
+];
+const sheet = new Image();
+sheet.src = '/chibi_tennis.png';
+
+function drawSheet(c2, idx, dx, dy, dw, dh) {
+  if (!sheet.complete || !sheet.naturalWidth) return false;
+  const d = SDEFS[idx];
+  const sw = sheet.naturalWidth / d.tc, sh = sheet.naturalHeight / 2;
+  c2.drawImage(sheet, d.col*sw, d.row*sh, sw, sh, dx, dy, dw, dh);
+  return true;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Characters — all 7 from chibi_tennis
+// ══════════════════════════════════════════════════════════════════════════════
+const CHARS = [
+  { id:'dokkaebi', name:'도깨비',  icon:'🔥', color:'#ff6600', sidx:0,
+    skill:'장애물 제거',      couple:'훌드라',  coupleIcon:'✨' },
+  { id:'messenger',name:'메신저',  icon:'📜', color:'#8899bb', sidx:1,
+    skill:'판결문 자동 면제', couple:'에이전트M',coupleIcon:'🤵' },
+  { id:'seonju',   name:'선주',    icon:'🌸', color:'#ff88cc', sidx:2,
+    skill:'속도 감소',        couple:'동기',    coupleIcon:'⚖️' },
+  { id:'huldra',   name:'훌드라',  icon:'✨', color:'#aa66ff', sidx:3,
+    skill:'2단 점프',         couple:'도깨비',  coupleIcon:'🔥' },
+  { id:'donggi',   name:'동기',    icon:'⚖️', color:'#4488ff', sidx:4,
+    skill:'판결문 면제',      couple:'선주',    coupleIcon:'🌸' },
+  { id:'grim',     name:'저승사자',icon:'💀', color:'#556655', sidx:5,
+    skill:'저승 투영',        couple:'훌드라',  coupleIcon:'✨' },
+  { id:'agentm',   name:'에이전트M',icon:'🤵',color:'#66bbaa', sidx:6,
+    skill:'일시 무적',        couple:'메신저',  coupleIcon:'📜' },
+];
+
+const OBSTACLES = [
+  {type:'bread', emoji:'🍞',w:44,h:44},
+  {type:'fish',  emoji:'🐟',w:48,h:42},
+  {type:'scroll',emoji:'📋',w:40,h:50},
+  {type:'chip',  emoji:'🃏',w:42,h:42},
+  {type:'mom',   emoji:'👑',w:46,h:56},
+];
+
+const CHEERS = [
+  {at:100, msg:'도깨비: 가랏~! 🔥'},
+  {at:300, msg:'선주: 잘한다~! 💕'},
+  {at:500, msg:'저승사자: ...👏'},
+  {at:800, msg:'에이전트M: 대단해요!'},
+  {at:1200,msg:'훌드라: 믿을 수 없어! ✨'},
+  {at:1800,msg:'동기엄마 👑: ...잘하는군.'},
+];
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 8-bit Audio (Web Audio API)
+// ══════════════════════════════════════════════════════════════════════════════
+let ac = null;
+function getAC() {
+  if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
+  if (ac.state === 'suspended') ac.resume();
+  return ac;
+}
+
+// 삐융 — 점프
+function sfxJump() {
+  try {
+    const a=getAC(), o=a.createOscillator(), g=a.createGain();
+    o.connect(g); g.connect(a.destination);
+    o.type='square';
+    o.frequency.setValueAtTime(260,a.currentTime);
+    o.frequency.exponentialRampToValueAtTime(1050,a.currentTime+.09);
+    g.gain.setValueAtTime(.22,a.currentTime);
+    g.gain.exponentialRampToValueAtTime(.001,a.currentTime+.11);
+    o.start(); o.stop(a.currentTime+.11);
+  } catch(e){}
+}
+
+// 부웅 — 충돌
+function sfxHit() {
+  try {
+    const a=getAC();
+    const o=a.createOscillator(), g=a.createGain();
+    o.connect(g); g.connect(a.destination);
+    o.type='sawtooth';
+    o.frequency.setValueAtTime(210,a.currentTime);
+    o.frequency.exponentialRampToValueAtTime(52,a.currentTime+.42);
+    g.gain.setValueAtTime(.38,a.currentTime);
+    g.gain.exponentialRampToValueAtTime(.001,a.currentTime+.42);
+    o.start(); o.stop(a.currentTime+.42);
+    // 노이즈
+    const buf=a.createBuffer(1,Math.floor(a.sampleRate*.18),a.sampleRate);
+    const d=buf.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1;
+    const s2=a.createBufferSource(), ng=a.createGain();
+    s2.buffer=buf; s2.connect(ng); ng.connect(a.destination);
+    ng.gain.setValueAtTime(.14,a.currentTime);
+    ng.gain.exponentialRampToValueAtTime(.001,a.currentTime+.18);
+    s2.start(); s2.stop(a.currentTime+.18);
+  } catch(e){}
+}
+
+// 뿅 — 점수 구간
+function sfxScore() {
+  try {
+    const a=getAC();
+    [523,659,784].forEach((f,i)=>{
+      const o=a.createOscillator(), g=a.createGain();
+      o.connect(g); g.connect(a.destination);
+      o.type='square'; o.frequency.value=f;
+      const t=a.currentTime+i*.1;
+      g.gain.setValueAtTime(.2,t);
+      g.gain.exponentialRampToValueAtTime(.001,t+.13);
+      o.start(t); o.stop(t+.13);
+    });
+  } catch(e){}
+}
+
+// ── BGM: 8-bit 루프 ──
+const BGM=[
+  [523,1],[523,1],[784,1],[784,1],[880,1],[880,1],[784,2],
+  [698,1],[698,1],[659,1],[659,1],[587,1],[587,1],[523,2],
+  [784,1],[784,1],[698,1],[698,1],[659,1],[659,1],[587,2],
+  [784,1],[784,1],[698,1],[698,1],[659,1],[659,1],[587,2],
+  [523,1],[523,1],[784,1],[784,1],[880,1],[880,1],[784,2],
+  [698,1],[659,1],[587,1],[523,1],[440,1],[392,1],[523,4],
+];
+const BEAT=.135;
+let bgmOn=false, bgmTime=0, bgmTimer=null, bgmGain=null;
+
+function bgmNote(a,f,t,dur){
+  if(!f) return;
+  if(!bgmGain){bgmGain=a.createGain();bgmGain.gain.value=1;bgmGain.connect(a.destination);}
+  const o=a.createOscillator(),g=a.createGain();
+  o.connect(g); g.connect(bgmGain);
+  o.type='square'; o.frequency.value=f;
+  g.gain.setValueAtTime(.065,t);
+  g.gain.setValueAtTime(.045,t+dur*.7);
+  g.gain.exponentialRampToValueAtTime(.001,t+dur*.92);
+  o.start(t); o.stop(t+dur*.92);
+}
+function bgmSchedule(){
+  if(!bgmOn) return;
+  const a=getAC();
+  if(bgmTime<a.currentTime) bgmTime=a.currentTime+.05;
+  let t=bgmTime;
+  BGM.forEach(([f,b])=>{bgmNote(a,f,t,b*BEAT);t+=b*BEAT;});
+  bgmTime=t;
+  const total=BGM.reduce((s,[,b])=>s+b,0)*BEAT;
+  bgmTimer=setTimeout(bgmSchedule,Math.max(0,(total-.35)*1000));
+}
+function startBGM(){if(bgmOn)return;bgmOn=true;bgmTime=0;bgmGain=null;bgmSchedule();}
+function stopBGM(){
+  bgmOn=false; if(bgmTimer) clearTimeout(bgmTimer);
+  if(bgmGain&&ac){
+    try{bgmGain.gain.setValueAtTime(bgmGain.gain.value,ac.currentTime);
+        bgmGain.gain.exponentialRampToValueAtTime(.001,ac.currentTime+.25);}catch(e){}
+    setTimeout(()=>{bgmGain=null;},350);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Game core
+// ══════════════════════════════════════════════════════════════════════════════
+const GROUND_Y=210, PW=50, PH=60;
+const canvas=document.getElementById('canvas');
+const ctx=canvas.getContext('2d');
+
+let sel=CHARS[0], state='select';
+let score=0, hiScore=0, spd=2, frame=0;
+let obs=[], parts=[];
+let cheer='', cheerT=0, lastCheerAt=-1;
+let skillReady=true, skillOn=false, skillT=0, skillCD=0;
+let dblJump=false, raf=null;
+let player={x:110,y:GROUND_Y,vy:0,grounded:true};
+let spaceHoldStart=0, spaceHeld=false;
+
+// ── Select screen ─────────────────────────────────────────────────────────────
+function paintCvs(cvs, char) {
+  const c2=cvs.getContext('2d');
+  c2.clearRect(0,0,cvs.width,cvs.height);
+  if(!drawSheet(c2,char.sidx,0,0,cvs.width,cvs.height)){
+    c2.font='40px serif'; c2.textAlign='center';
+    c2.fillText(char.icon, cvs.width/2, cvs.height*.72);
+  }
+}
+sheet.onload=()=>{
+  document.querySelectorAll('[data-cid]').forEach(cvs=>{
+    const c=CHARS.find(ch=>ch.id===cvs.dataset.cid);
+    if(c) paintCvs(cvs,c);
+  });
+};
+
+function buildSelect(){
+  const g=document.getElementById('char-grid');
+  g.innerHTML='';
+  CHARS.forEach(c=>{
+    const d=document.createElement('div');
+    d.className='char-btn'+(c.id===sel.id?' selected':'');
+    const cvs=document.createElement('canvas');
+    cvs.width=60; cvs.height=86;
+    // pointer-events:none — 클릭이 부모 div까지 전달되도록
+    cvs.style.cssText='display:block;margin:0 auto 8px;pointer-events:none';
+    cvs.dataset.cid=c.id;
+    paintCvs(cvs,c);
+    const nm=document.createElement('div');
+    nm.className='char-name'; nm.textContent=c.name;
+    nm.style.pointerEvents='none';
+    const sk=document.createElement('div');
+    sk.className='char-skill'; sk.textContent=c.skill;
+    sk.style.pointerEvents='none';
+    d.dataset.charId=c.id;
+    d.append(cvs,nm,sk);
+    d.addEventListener('click',()=>{
+      sel=CHARS.find(ch=>ch.id===d.dataset.charId);
+      document.querySelectorAll('.char-btn').forEach(b=>b.classList.remove('selected'));
+      d.classList.add('selected');
+    });
+    g.appendChild(d);
+  });
+}
+
+function showSelect(){
+  if(raf) cancelAnimationFrame(raf);
+  stopBGM(); state='select';
+  document.getElementById('select-screen').style.display='block';
+  document.getElementById('game-screen').style.display='none';
+  document.getElementById('result-screen').style.display='none';
+  buildSelect();
+}
+
+function startGame(){
+  score=0;frame=0;spd=2;obs=[];parts=[];
+  cheer='';cheerT=0;lastCheerAt=-1;
+  skillReady=true;skillOn=false;skillT=0;skillCD=0;
+  dblJump=false;spaceHeld=false;spaceHoldStart=0;
+  player={x:110,y:GROUND_Y,vy:0,grounded:true};
+  state='playing';
+  document.getElementById('select-screen').style.display='none';
+  document.getElementById('result-screen').style.display='none';
+  document.getElementById('game-screen').style.display='block';
+  document.getElementById('hud-char').textContent=sel.name;
+  document.getElementById('hud-score').textContent='점수: 0';
+  document.getElementById('hud-skill').textContent='특기: 준비 ✓';
+  if(raf) cancelAnimationFrame(raf);
+  stopBGM(); startBGM(); loop();
+}
+
+// ── Controls ──────────────────────────────────────────────────────────────────
+function doJump(dbl){
+  if(!dbl){player.vy=-16;player.grounded=false;dblJump=false;addP(player.x+PW/2,player.y+PH,'#ffd700',6);}
+  else    {player.vy=-13;dblJump=true;          addP(player.x+PW/2,player.y+PH/2,'#aa66ff',8);}
+  sfxJump();
+}
+function doSkill(){
+  if(!skillReady||skillCD>0) return;
+  skillOn=true;skillT=120;skillCD=400;skillReady=false;
+  addP(player.x+PW/2,player.y+PH/2,sel.color,14);
+  document.getElementById('hud-skill').textContent='특기: 발동!';
+}
+
+document.addEventListener('keydown',e=>{
+  if(e.code==='Space'){
+    e.preventDefault(); getAC();
+    if(state!=='playing') return;
+    if(!spaceHeld){
+      spaceHeld=true; spaceHoldStart=Date.now();
+      if(player.grounded) doJump(false);
+      else if(sel.id==='huldra'&&!dblJump) doJump(true);
+    }
+  }
+});
+document.addEventListener('keyup',e=>{
+  if(e.code==='Space'){
+    if(state!=='playing'){spaceHeld=false;return;}
+    const held=Date.now()-spaceHoldStart; spaceHeld=false;
+    if(held>500) doSkill();
+  }
+});
+canvas.addEventListener('click',()=>{
+  getAC(); if(state!=='playing') return;
+  if(player.grounded) doJump(false);
+  else if(sel.id==='huldra'&&!dblJump) doJump(true);
+});
+canvas.addEventListener('touchstart',e=>{
+  e.preventDefault(); spaceHeld=true; spaceHoldStart=Date.now(); getAC();
+  if(state!=='playing') return;
+  if(player.grounded) doJump(false);
+  else if(sel.id==='huldra'&&!dblJump) doJump(true);
+},{passive:false});
+canvas.addEventListener('touchend',e=>{
+  e.preventDefault();
+  const held=Date.now()-spaceHoldStart; spaceHeld=false;
+  if(held>500) doSkill();
+},{passive:false});
+
+function addP(x,y,col,n){
+  for(let i=0;i<n;i++) parts.push({x,y,vx:(Math.random()-.5)*6,vy:(Math.random()-1.5)*5,life:30,col});
+}
+function spawnObs(){
+  const t=OBSTACLES[Math.floor(Math.random()*OBSTACLES.length)];
+  obs.push({...t,x:920,y:GROUND_Y+PH-t.h,gone:false});
+}
+
+// ── Game loop ─────────────────────────────────────────────────────────────────
+function loop(){
+  if(state!=='playing') return;
+  ctx.clearRect(0,0,900,300); frame++;
+
+  // 별
+  for(let i=0;i<35;i++){
+    const sx=(i*89+frame*.5)%900, sy=(i*41)%180;
+    ctx.globalAlpha=.15+Math.sin(frame*.04+i)*.15;
+    ctx.fillStyle='#fff'; ctx.fillRect(sx,sy,1.5,1.5);
+  }
+  ctx.globalAlpha=1;
+
+  // 바닥
+  ctx.fillStyle='#111128'; ctx.fillRect(0,GROUND_Y+PH,900,300);
+  ctx.strokeStyle='#2a2a5e'; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(0,GROUND_Y+PH); ctx.lineTo(900,GROUND_Y+PH); ctx.stroke();
+
+  // 물리
+  if(!player.grounded){
+    player.vy+=.65; player.y+=player.vy;
+    if(player.y>=GROUND_Y){player.y=GROUND_Y;player.vy=0;player.grounded=true;}
+  }
+
+  // 스킬 타이머
+  if(skillOn){skillT--;if(skillT<=0)skillOn=false;}
+  if(skillCD>0){
+    skillCD--;
+    if(skillCD<=0){skillReady=true;document.getElementById('hud-skill').textContent='특기: 준비 ✓';}
+    else if(skillCD<120) document.getElementById('hud-skill').textContent='특기: 재충전..';
+  }
+
+  // 장애물
+  const interval=Math.max(72,128-Math.floor(score/300));
+  if(frame%interval===0) spawnObs();
+
+  // 선주 스킬: 속도 감소
+  const curSpd = (skillOn&&sel.id==='seonju') ? spd*0.45 : spd;
+  obs.forEach(o=>o.x-=curSpd);
+  obs=obs.filter(o=>o.x>-60&&!o.gone);
+
+  // 충돌
+  let hit=false;
+  obs.forEach(o=>{
+    if(o.gone) return;
+    const px=player.x+20, py=player.y+22, pw=PW-40, ph=PH-36;
+    const ox=o.x+8, oy=o.y+8, ow=o.w-16, oh=o.h-16;
+    if(px<ox+ow&&px+pw>ox&&py<oy+oh&&py+ph>oy){
+      // 장애물 제거형 스킬
+      if(skillOn&&(sel.id==='dokkaebi'||sel.id==='agentm')){
+        o.gone=true; addP(o.x+o.w/2,o.y+o.h/2,sel.color,10); return;
+      }
+      // 저승사자: 투영(통과)
+      if(skillOn&&sel.id==='grim') return;
+      // 스크롤 면제
+      if((sel.id==='messenger'||sel.id==='donggi')&&o.type==='scroll'){o.gone=true;return;}
+      hit=true;
+    }
+  });
+  if(hit){sfxHit();endGame();return;}
+
+  // 장애물 그리기
+  ctx.font='40px serif'; ctx.textAlign='center';
+  obs.forEach(o=>ctx.fillText(o.emoji,o.x+o.w/2,o.y+o.h));
+
+  // 파티클
+  parts.forEach(p=>{p.x+=p.vx;p.y+=p.vy;p.vy+=.25;p.life--;});
+  parts=parts.filter(p=>p.life>0);
+  parts.forEach(p=>{ctx.globalAlpha=p.life/30;ctx.fillStyle=p.col;ctx.fillRect(p.x-3,p.y-3,6,6);});
+  ctx.globalAlpha=1;
+
+  // 스킬 오라
+  if(skillOn){
+    ctx.globalAlpha=.22; ctx.fillStyle=sel.color;
+    ctx.beginPath(); ctx.arc(player.x+PW/2,player.y+PH/2,34,0,Math.PI*2); ctx.fill();
+    ctx.globalAlpha=1;
+  }
+
+  // 플레이어 스프라이트
+  if(!drawSheet(ctx,sel.sidx,player.x,player.y,PW,PH)){
+    ctx.font='44px serif'; ctx.textAlign='center';
+    ctx.fillText(sel.icon,player.x+PW/2,player.y+PH);
+  }
+
+  // 점수
+  score++; spd=2+Math.floor(score/400)*.4;
+  if(score%5===0) document.getElementById('hud-score').textContent='점수: '+score;
+
+  // 응원 + 뿅
+  CHEERS.forEach(ch=>{
+    if(score>=ch.at&&score<ch.at+5&&lastCheerAt!==ch.at){
+      cheer=ch.msg; cheerT=120; lastCheerAt=ch.at; sfxScore();
+    }
+  });
+  if(cheerT>0){
+    ctx.font='17px Courier New'; ctx.textAlign='center';
+    ctx.globalAlpha=Math.min(1,cheerT/40);
+    ctx.fillStyle='#ffd700'; ctx.fillText(cheer,450,40);
+    ctx.globalAlpha=1; cheerT--;
+  }
+
+  ctx.font='12px Courier New'; ctx.fillStyle='#333'; ctx.textAlign='right';
+  ctx.fillText('HI: '+hiScore,890,292);
+  raf=requestAnimationFrame(loop);
+}
+
+function endGame(){
+  state='result'; stopBGM();
+  if(score>hiScore) hiScore=score;
+  if(raf) cancelAnimationFrame(raf);
+  document.getElementById('game-screen').style.display='none';
+  document.getElementById('result-screen').style.display='block';
+
+  let title, coupleStr, msg;
+  if(score<200){
+    title='아쉬워... 😢';
+    coupleStr=sel.icon+' 😞 '+sel.coupleIcon;
+    msg=`"다음엔 잘 할 수 있어!"\n${sel.couple}가 ${sel.name}를 외면합니다.`;
+  } else if(score<600){
+    title='그럭저럭 😐';
+    coupleStr=sel.icon+' 😐 '+sel.coupleIcon;
+    msg=`둘 다 조용히 있습니다.\n...아무 말도 없습니다.`;
+  } else {
+    title='대단해!! 🎉';
+    coupleStr=sel.icon+' 😘 '+sel.coupleIcon;
+    msg=`"역시 ${sel.name}이야!"\n${sel.couple}가 뽀뽀합니다. 💕\n\n최고!!`;
+  }
+  document.getElementById('r-title').textContent=title;
+  document.getElementById('r-score').textContent=score+'점';
+  document.getElementById('r-couple').textContent=coupleStr;
+  document.getElementById('r-msg').textContent=msg;
+}
+
+buildSelect();
+</script>
+</body>
+</html>

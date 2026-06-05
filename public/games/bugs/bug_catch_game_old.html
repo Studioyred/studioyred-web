@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>곤충 채집 - StudioYRed</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #1a1a2e; font-family: 'Courier New', monospace; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; }
+
+#title-screen { text-align: center; padding: 20px; }
+#title-screen h1 { font-size: 32px; color: #7cfc00; letter-spacing: 4px; margin-bottom: 8px; text-shadow: 0 0 10px #7cfc00; }
+#title-screen p { color: #888; font-size: 14px; margin-bottom: 30px; }
+.hi-score { color: #ffd700; font-size: 14px; margin-bottom: 20px; }
+#play-btn { background: #7cfc00; color: #000; border: none; border-radius: 8px; padding: 14px 48px; font-size: 18px; font-weight: bold; cursor: pointer; font-family: 'Courier New', monospace; letter-spacing: 2px; }
+#play-btn:hover { background: #90ff00; }
+
+#game-screen { display: none; flex-direction: column; align-items: center; }
+#hud { display: flex; justify-content: space-between; width: 640px; color: #7cfc00; font-size: 14px; margin-bottom: 6px; padding: 0 4px; }
+#canvas { display: block; border: 1px solid #222; border-radius: 4px; }
+#controls-hint { color: #444; font-size: 11px; margin-top: 8px; text-align: center; }
+
+#result-screen { display: none; text-align: center; padding: 20px; }
+.result-box { background: #111; border: 2px solid #333; border-radius: 16px; padding: 30px 50px; max-width: 400px; margin: 0 auto; }
+.result-title { font-size: 24px; color: #7cfc00; margin-bottom: 10px; }
+.result-score { font-size: 52px; font-weight: bold; color: #fff; margin: 10px 0; }
+.result-insects { font-size: 28px; margin: 16px 0; }
+.result-msg { font-size: 14px; color: #aaa; margin-bottom: 20px; line-height: 1.6; }
+.btn-row { display: flex; gap: 12px; justify-content: center; }
+.btn-row button { background: #222; border: 1px solid #444; color: #ccc; border-radius: 8px; padding: 10px 24px; cursor: pointer; font-family: 'Courier New', monospace; font-size: 13px; }
+.btn-row button:hover { border-color: #7cfc00; color: #7cfc00; }
+</style>
+</head>
+<body>
+
+<div id="title-screen">
+  <h1>🦋 곤충 채집</h1>
+  <p>숲속의 다양한 곤충을 채집해 보세요!</p>
+  <div class="hi-score" id="hi-display">최고 기록: 0점</div>
+  <button id="play-btn" onclick="startGame()">▶ 시작!</button>
+  <p style="color:#555; font-size:11px; margin-top:16px;">← → 이동 &nbsp;|&nbsp; SPACE 채집망 던지기</p>
+</div>
+
+<div id="game-screen">
+  <div id="hud">
+    <span id="hud-life">❤️❤️❤️</span>
+    <span id="hud-score">점수: 0</span>
+    <span id="hud-level">WAVE 1</span>
+  </div>
+  <canvas id="canvas" width="640" height="480"></canvas>
+  <div id="controls-hint">← → 이동 &nbsp;|&nbsp; SPACE 채집망 &nbsp;|&nbsp; 모바일: 터치</div>
+</div>
+
+<div id="result-screen">
+  <div class="result-box">
+    <div class="result-title" id="r-title">게임 종료!</div>
+    <div class="result-score" id="r-score">0점</div>
+    <div class="result-insects" id="r-insects"></div>
+    <div class="result-msg" id="r-msg"></div>
+    <div class="btn-row">
+      <button onclick="showTitle()">타이틀</button>
+      <button onclick="startGame()">다시 도전!</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const INSECTS = [
+  { emoji:'🦋', name:'나비', pts:10, spd:0.6, hp:1, color:'#ff88cc' },
+  { emoji:'🐛', name:'애벌레', pts:20, spd:0.4, hp:1, color:'#88ff44' },
+  { emoji:'🦗', name:'메뚜기', pts:30, spd:1.0, hp:1, color:'#44ff88' },
+  { emoji:'🐝', name:'벌', pts:50, spd:1.2, hp:1, color:'#ffdd00' },
+  { emoji:'🪲', name:'사슴벌레', pts:100, spd:0.8, hp:2, color:'#ff6600' },
+  { emoji:'🦟', name:'모기', pts:15, spd:1.4, hp:1, color:'#aaaaaa' },
+];
+
+const W=640, H=480;
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+let state='title', score=0, hiScore=0, wave=1, frame=0;
+let timeLeft=60, lastSecFrame=0;
+let player={x:300, y:420, w:40, h:40, speed:4};
+let nets=[], insects=[], particles=[], caught=[];
+let keys={left:false, right:false, space:false};
+let spacePressed=false, lastFire=0;
+let waveTimer=0, waveClear=false;
+let raf=null;
+let touchStartX=null;
+
+function showTitle(){
+  if(raf) cancelAnimationFrame(raf);
+  state='title';
+  document.getElementById('title-screen').style.display='block';
+  document.getElementById('game-screen').style.display='none';
+  document.getElementById('result-screen').style.display='none';
+  document.getElementById('hi-display').textContent='최고 기록: '+hiScore+'점';
+}
+
+function startGame(){
+  score=0; wave=1; frame=0; timeLeft=60; lastSecFrame=0;
+  nets=[]; insects=[]; particles=[]; caught=[];
+  player={x:300, y:420, w:40, h:40, speed:4};
+  waveClear=false; waveTimer=0;
+  state='playing';
+  document.getElementById('title-screen').style.display='none';
+  document.getElementById('result-screen').style.display='none';
+  document.getElementById('game-screen').style.display='flex';
+  updateHUD();
+  spawnWave();
+  if(raf) cancelAnimationFrame(raf);
+  loop();
+}
+
+function spawnWave(){
+  insects=[];
+  const count = 5 + wave*2;
+  const cols = Math.min(count, 8);
+  const rows = Math.ceil(count/cols);
+  let idx=0;
+  for(let r=0;r<rows;r++){
+    for(let c=0;c<cols;c++){
+      if(idx>=count) break;
+      const type = INSECTS[Math.floor(Math.random()*INSECTS.length)];
+      insects.push({
+        ...type,
+        x: 60 + c*(W-120)/(cols-1||1),
+        y: 40 + r*55,
+        vx: (Math.random()-0.5)*type.spd,
+        vy: 0,
+        dy: 0,
+        dyt: Math.random()*Math.PI*2,
+        alive: true,
+        hp: type.hp,
+        dive: false,
+        diveT: 0,
+        diveX: 0,
+        diveY: 0,
+      });
+      idx++;
+    }
+  }
+}
+
+function fireNet(){
+  const now=Date.now();
+  if(now-lastFire<400) return;
+  lastFire=now;
+  nets.push({x:player.x+player.w/2, y:player.y-10, vy:-11, w:50, h:50, alive:true});
+}
+
+function addParticles(x,y,color,n){
+  for(let i=0;i<n;i++) particles.push({x,y,vx:(Math.random()-.5)*5,vy:(Math.random()-1.5)*4,life:25,color});
+}
+
+function updateHUD(){
+  document.getElementById('hud-life').textContent='⏱️ '+timeLeft+'초';
+  document.getElementById('hud-score').textContent='점수: '+score;
+  document.getElementById('hud-level').textContent='WAVE '+wave;
+}
+
+function drawBg(){
+  ctx.fillStyle='#0d1117';
+  ctx.fillRect(0,0,W,H);
+  for(let i=0;i<30;i++){
+    const sx=(i*89+frame*0.3)%W, sy=(i*53)%200;
+    ctx.globalAlpha=0.2+Math.sin(frame*0.03+i)*0.1;
+    ctx.fillStyle='#fff';
+    ctx.fillRect(sx,sy,1,1);
+  }
+  ctx.globalAlpha=1;
+  ctx.fillStyle='#1a2e0a';
+  ctx.fillRect(0,H-40,W,40);
+  ctx.fillStyle='#2a4a10';
+  for(let i=0;i<12;i++){
+    const gx=(i*60+frame*0.5)%W;
+    ctx.beginPath();
+    ctx.moveTo(gx,H-40);
+    ctx.lineTo(gx+15,H-65);
+    ctx.lineTo(gx+30,H-40);
+    ctx.fill();
+  }
+}
+
+const donggiImg = new Image();
+donggiImg.src = '/chib_donggi_kids.png';
+
+function drawPlayer(){
+  if(donggiImg.complete && donggiImg.naturalWidth>0){
+    ctx.drawImage(donggiImg, player.x, player.y-10, player.w+10, player.h+10);
+  } else {
+    ctx.font='32px serif';
+    ctx.textAlign='center';
+    ctx.fillText('🧒', player.x+player.w/2, player.y+player.h-2);
+  }
+  ctx.font='16px serif';
+  ctx.textAlign='center';
+  ctx.fillText('🥅', player.x+player.w/2, player.y+2);
+}
+
+function loop(){
+  if(state!=='playing') return;
+  ctx.clearRect(0,0,W,H);
+  frame++;
+
+  drawBg();
+
+  if(keys.left) player.x=Math.max(0,player.x-player.speed);
+  if(keys.right) player.x=Math.min(W-player.w,player.x+player.speed);
+
+  nets.forEach(n=>{
+    if(!n.alive) return;
+    n.y+=n.vy;
+    if(n.y<-30) n.alive=false;
+    ctx.font='22px serif';
+    ctx.textAlign='center';
+    ctx.font='36px serif'; ctx.fillText('🥅', n.x, n.y);
+  });
+  nets=nets.filter(n=>n.alive);
+
+  let aliveCount=0;
+  insects.forEach(ins=>{
+    if(!ins.alive) return;
+    aliveCount++;
+    ins.dyt+=0.04;
+    ins.dy=Math.sin(ins.dyt)*15;
+    if(!ins.dive){
+      ins.x+=ins.vx;
+      if(ins.x<20||ins.x>W-20) ins.vx*=-1;
+      if(Math.random()<0.001+wave*0.0005 && ins.y<200){
+        ins.dive=true; ins.diveT=0;
+        ins.diveX=ins.x; ins.diveY=ins.y;
+      }
+    } else {
+      ins.diveT+=0.025;
+      ins.x=ins.diveX+Math.sin(ins.diveT*2)*80;
+      ins.y=ins.diveY+ins.diveT*60;
+      if(ins.y>H+40){ ins.dive=false; ins.y=40+Math.random()*100; ins.diveY=ins.y; }
+    }
+
+    ctx.font='26px serif';
+    ctx.textAlign='center';
+    ctx.fillText(ins.emoji, ins.x, ins.y+ins.dy);
+
+    if(ins.hp>1){
+      ctx.fillStyle='#ff0';
+      ctx.font='10px Courier New';
+      ctx.fillText('HP:'+ins.hp, ins.x, ins.y+ins.dy-16);
+    }
+
+    nets.forEach(n=>{
+      if(!n.alive||!ins.alive) return;
+      const dx=n.x-ins.x, dy=n.y-(ins.y+ins.dy);
+      if(Math.abs(dx)<34&&Math.abs(dy)<34){
+        ins.hp--;
+        if(ins.hp<=0){
+          ins.alive=false;
+          score+=ins.pts*(wave);
+          caught.push(ins.emoji);
+          addParticles(ins.x,ins.y+ins.dy,ins.color,8);
+        }
+        n.alive=false;
+      }
+    });
+
+    if(ins.dive){
+      const px=player.x+player.w/2, py=player.y+player.h/2;
+      const dx=ins.x-px, dy=(ins.y+ins.dy)-py;
+      if(Math.abs(dx)<22&&Math.abs(dy)<22){
+        ins.alive=false;
+        
+        addParticles(px,py,'#ff4444',10);
+        updateHUD();
+        
+      }
+    }
+  });
+
+  particles.forEach(p=>{p.x+=p.vx;p.y+=p.vy;p.vy+=0.2;p.life--;});
+  particles=particles.filter(p=>p.life>0);
+  particles.forEach(p=>{
+    ctx.globalAlpha=p.life/25;
+    ctx.fillStyle=p.color;
+    ctx.fillRect(p.x-2,p.y-2,5,5);
+  });
+  ctx.globalAlpha=1;
+
+  drawPlayer();
+
+  if(aliveCount===0&&!waveClear){
+    waveClear=true; waveTimer=120;
+  }
+  if(waveClear){
+    waveTimer--;
+    ctx.font='28px Courier New';
+    ctx.fillStyle='#7cfc00';
+    ctx.textAlign='center';
+    ctx.fillText('WAVE '+wave+' 클리어! +'+wave*50+'점', W/2, H/2);
+    if(waveTimer<=0){
+      score+=wave*50;
+      wave++;
+      waveClear=false;
+      spawnWave();
+      updateHUD();
+    }
+  }
+
+  score=Math.max(0,score);
+  if(frame%60===0 && timeLeft>0){ timeLeft--; document.getElementById('hud-life').textContent='⏱️ '+timeLeft+'초'; if(timeLeft<=0){ endGame(); return; } }
+  if(frame%5===0) document.getElementById('hud-score').textContent='점수: '+score;
+
+  raf=requestAnimationFrame(loop);
+}
+
+function endGame(){
+  state='result';
+  if(score>hiScore) hiScore=score;
+  if(raf) cancelAnimationFrame(raf);
+  document.getElementById('game-screen').style.display='none';
+  document.getElementById('result-screen').style.display='block';
+
+  const uniqueCaught=[...new Set(caught)];
+  let msg, title;
+  if(score<200){ title='아쉬워요... 😢'; msg='"더 연습이 필요해요!\n곤충들이 도망갔어요."'; }
+  else if(score<800){ title='잘했어요! 😄'; msg='"제법인데요!\n은풍골 꼬마 탐험가!"'; }
+  else { title='대단해요!! 🎉'; msg='"완벽한 채집가!\n동기도 놀랐어요 ㅋㅋㅋ"'; }
+
+  document.getElementById('r-title').textContent=title;
+  document.getElementById('r-score').textContent=score+'점';
+  document.getElementById('r-insects').textContent=uniqueCaught.join(' ')||'😢';
+  document.getElementById('r-msg').textContent=msg;
+}
+
+document.addEventListener('keydown', e=>{
+  if(e.code==='ArrowLeft') keys.left=true;
+  if(e.code==='ArrowRight') keys.right=true;
+  if(e.code==='Space'){ e.preventDefault(); if(!spacePressed){ spacePressed=true; if(state==='playing') fireNet(); } }
+});
+document.addEventListener('keyup', e=>{
+  if(e.code==='ArrowLeft') keys.left=false;
+  if(e.code==='ArrowRight') keys.right=false;
+  if(e.code==='Space') spacePressed=false;
+});
+
+canvas.addEventListener('touchstart', e=>{
+  e.preventDefault();
+  touchStartX=e.touches[0].clientX;
+  if(state==='playing') fireNet();
+},{passive:false});
+canvas.addEventListener('touchmove', e=>{
+  e.preventDefault();
+  if(!touchStartX) return;
+  const dx=e.touches[0].clientX-touchStartX;
+  player.x=Math.max(0,Math.min(W-player.w,player.x+dx*0.3));
+  touchStartX=e.touches[0].clientX;
+},{passive:false});
+canvas.addEventListener('touchend', e=>{ e.preventDefault(); touchStartX=null; },{passive:false});
+
+showTitle();
+</script>
+</body>
+</html>

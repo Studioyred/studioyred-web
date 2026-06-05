@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(New-Item *)",
+      "PowerShell(cd D:\\\\studioyred-web; npx tsc --noEmit 2>&1 | Where-Object { $_ -match \"WorldMap|ViewerClient|viewer|page.tsx\" })",
+      "PowerShell(cd D:\\\\studioyred-web; Start-Process powershell -ArgumentList \"-NoExit\", \"-Command\", \"cd D:\\\\studioyred-web; npx next dev\" -WindowStyle Normal)",
+      "PowerShell(Start-Sleep -Seconds 4; Invoke-WebRequest -Uri \"http://localhost:3000\" -TimeoutSec 5 | Select-Object -ExpandProperty StatusCode)",
+      "WebFetch(domain:www.wattpad.com)",
+      "PowerShell(New-Item *)",
+      "PowerShell(netstat *)",
+      "Bash(powershell.exe *)",
+      "Bash(python3 *)",
+      "Bash(node -e 'const d=JSON.parse\\(require\\('\\\\''fs'\\\\''\\).readFileSync\\('\\\\''public/docs/edits/__TRACKED_VAR__.json'\\\\'','\\\\''utf8'\\\\''\\)\\); console.log\\('\\\\''OK, '\\\\''+d.chapters.length+'\\\\'' chapters'\\\\''\\)')",
+      "Bash(node *)",
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "Bash(copy *)",
+      "Bash(grep -v \"^$\")"
+    ]
+  }
+}
